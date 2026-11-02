@@ -1,0 +1,408 @@
+local DIR = debug.getinfo(1, "S").source:sub(2):match("(.*[/\\])") or "./"
+
+package.preload["gettext"] = function()
+    return setmetatable({}, { __call = function(_, s) return s end })
+end
+package.path = DIR .. "common/?.lua;" .. DIR .. "?.lua;" .. package.path
+
+-- Trays are written row by row (4 squares each), see solver.lua.
+local function rows(...)
+    return table.concat({ ... })
+end
+
+local CLASSIC = rows("^AA^", "vAAv", "^<>^", "voov", "o..o")
+-- Two moves, only because a small block may turn a corner in one move: the
+-- one in the way goes down then left, then the 2×2 drops.
+local CORNER = rows("<><>", "^AA^", "vAAv", "oo.^", "...v")
+
+describe("Solver", function()
+    local Solver
+    setup(function() Solver = require("solver") end)
+
+    it("parses and formats a level string", function()
+        local blocks = assert(Solver.parse(CLASSIC))
+        assert.are.equal(10, #blocks)
+        assert.are.same({ code = 4, a = 1 }, blocks[1])   -- the 2×2 first
+        assert.are.same({ code = 2, a = 0 }, blocks[2])   -- then reading order
+        assert.are.equal(CLASSIC, Solver.format(blocks))
+        assert.are.equal(CLASSIC, Solver.format(Solver.blocksOf(Solver.encode(blocks))))
+        assert.are.equal(rows("^AA^", "vAAv", "^<>^", "voov", "o..o"), Solver.mirror(CLASSIC))
+        assert.are.equal(rows("..<>", "...o", "....", "....", "...."),
+            Solver.mirror(rows("<>..", "o...", "....", "....", "....")))
+    end)
+
+    it("rejects malformed levels", function()
+        assert.is_nil(Solver.parse("too short"))
+        assert.is_nil(Solver.parse(rows("....", "....", "....", "....", "....")))      -- no 2×2
+        assert.is_nil(Solver.parse(rows("AA..", "A...", "....", "....", "....")))      -- broken 2×2
+        assert.is_nil(Solver.parse(rows("AA..", "AA..", "..AA", "..AA", "....")))      -- two 2×2
+        assert.is_nil(Solver.parse(rows("AA^.", "AA..", "....", "....", "....")))      -- half a vertical
+        assert.is_nil(Solver.parse(rows("AA.<", "AA..", "....", "....", "....")))      -- out of the tray
+        assert.is_nil(Solver.parse(rows("AAoo", "AAoo", "oooo", "oooo", "oooo")))      -- no gap
+    end)
+
+    it("finds the optimal count on hand-made cases", function()
+        local function dist(s) return Solver.distance(assert(Solver.parse(s))) end
+        assert.are.equal(0, dist(rows("....", "....", "....", ".AA.", ".AA.")))
+        -- One move, any distance.
+        assert.are.equal(1, dist(rows(".AA.", ".AA.", "....", "....", "....")))
+        assert.are.equal(2, dist(CORNER))
+        -- Walled in for good.
+        assert.is_nil((dist(rows("AA^o", "AAvo", "<><>", "<><>", "<>o."))))
+    end)
+
+    it("counts a move round a corner as one move", function()
+        local blocks = assert(Solver.parse(CORNER))
+        local s = 0
+        for i, b in ipairs(blocks) do if b.a == 13 then s = i end end
+        local reach = Solver.reach(blocks, s)
+        table.sort(reach)
+        -- Right, down, down-right and down-then-left.
+        assert.are.same({ 14, 16, 17, 18 }, reach)
+    end)
+
+    it("knows the famous optimum of the traditional layouts", function()
+        local function dist(s) return Solver.distance(assert(Solver.parse(s))) end
+        assert.are.equal(81, dist(CLASSIC))                                  -- the Red Donkey
+        assert.are.equal(70, dist(rows("^AA^", "vAAv", "o<>o", "^oo^", "v..v")))
+        assert.are.equal(60, dist(rows("^AA^", "vAAv", "oooo", "^<>^", "v..v")))
+        assert.are.equal(72, dist(rows("oAAo", "^AA^", "v<>v", "^oo^", "v..v")))
+    end)
+
+    it("agrees with an independent iterative-deepening search", function()
+        -- Plain DFS over the rules, on the level string, without the packed
+        -- states: a move is a block going anywhere its own flood fill reaches.
+        local W, H = 4, 5
+        local function blocksOfStr(s)
+            local t, taken = {}, {}
+            for i = 0, 19 do
+                local ch = s:sub(i + 1, i + 1)
+                if not taken[i] and ch ~= "." then
+                    local w = (ch == "A" or ch == "<") and 2 or 1
+                    local h = (ch == "A" or ch == "^") and 2 or 1
+                    for dr = 0, h - 1 do for dc = 0, w - 1 do taken[i + dr * W + dc] = true end end
+                    t[#t + 1] = { r = math.floor(i / W), c = i % W, w = w, h = h, ch = ch }
+                end
+            end
+            return t
+        end
+        local function render(bl)
+            local g = {}
+            for i = 1, 20 do g[i] = "." end
+            for _, b in ipairs(bl) do
+                for dr = 0, b.h - 1 do for dc = 0, b.w - 1 do
+                    local ch = b.ch
+                    if ch == "^" and dr == 1 then ch = "v" end
+                    if ch == "<" and dc == 1 then ch = ">" end
+                    g[(b.r + dr) * W + b.c + dc + 1] = ch
+                end end
+            end
+            return table.concat(g)
+        end
+        local function solved(bl)
+            for _, b in ipairs(bl) do if b.ch == "A" then return b.r == 3 and b.c == 1 end end
+        end
+        local function free(bl, k, r, c)
+            local b = bl[k]
+            if r < 0 or c < 0 or r + b.h > H or c + b.w > W then return false end
+            for j, o in ipairs(bl) do
+                if j ~= k and r < o.r + o.h and o.r < r + b.h and c < o.c + o.w and o.c < c + b.w then
+                    return false
+                end
+            end
+            return true
+        end
+        local function ids(bl, limit)
+            if solved(bl) then return true end
+            if limit == 0 then return false end
+            for k, b in ipairs(bl) do
+                local r0, c0 = b.r, b.c
+                local seenp, q = { [r0 * 10 + c0] = true }, { { r0, c0 } }
+                local h = 1
+                while q[h] do
+                    local r, c = q[h][1], q[h][2]
+                    h = h + 1
+                    for _, d in ipairs({ { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } }) do
+                        local nr, nc = r + d[1], c + d[2]
+                        if not seenp[nr * 10 + nc] and free(bl, k, nr, nc) then
+                            seenp[nr * 10 + nc] = true
+                            q[#q + 1] = { nr, nc }
+                        end
+                    end
+                end
+                for i = 2, #q do
+                    b.r, b.c = q[i][1], q[i][2]
+                    local ok = ids(bl, limit - 1)
+                    b.r, b.c = r0, c0
+                    if ok then return true end
+                end
+            end
+            return false
+        end
+        local Levels = require("levels")
+        local cases = { CORNER, Levels.get("easy", 1).str, Levels.get("easy", 2).str, Levels.get("easy", 3).str }
+        for _, s in ipairs(cases) do
+            local d = Solver.distance(assert(Solver.parse(s)))
+            assert.is_truthy(d, s)
+            assert.is_true(d <= 5, s)
+            local bl = blocksOfStr(s)
+            assert.are.equal(s, render(bl))
+            local found
+            for k = 0, d do
+                if ids(bl, k) then found = k break end
+            end
+            assert.are.equal(d, found, s)
+        end
+    end)
+end)
+
+describe("KlotskiBoard", function()
+    local Board, Solver
+    setup(function()
+        Board  = require("board")
+        Solver = require("solver")
+    end)
+
+    it("moves blocks only into reachable squares, the nearer place first", function()
+        local b = Board:new{ level = CLASSIC, optimal = 81 }
+        local v = b:blockAt(3, 1)          -- the vertical on rows 3-4, column 1
+        assert.are.equal("V", b:kindOf(v))
+        assert.are.same({}, b:reach(v))    -- (5,1) holds a small block
+        local s = b:blockAt(5, 1)
+        assert.are.equal("S", b:kindOf(s))
+        assert.are.equal(17, b:targetFor(s, 5, 2))
+        assert.are.equal(18, b:targetFor(s, 5, 3))
+        assert.is_nil(b:targetFor(s, 4, 2))   -- taken
+        assert.is_nil(b:targetFor(s, 5, 1))   -- under it
+        assert.is_false(b:move(s, 19))        -- (5,4) holds a block
+        assert.are.equal(0, b:getMoves())
+        -- Swipe: straight, as far as it goes.
+        assert.is_true(b:slide(s, "right"))
+        assert.are.equal(18, b.blocks[s].a)
+        -- A vertical with two free squares under it: the nearer place covers
+        -- the first one.
+        local b2 = Board:new{ level = rows(".AA.", ".AA.", "^...", "v...", "....") }
+        local vert = b2:blockAt(3, 1)
+        assert.are.equal(12, b2:targetFor(vert, 5, 1))   -- one down covers (5,1)
+        assert.is_true(b2:slide(vert, "down"))
+        assert.are.equal(12, b2.blocks[vert].a)
+        assert.is_nil(b2:slideTarget(vert, "down"))
+    end)
+
+    it("counts a block moved again straight after as the same move", function()
+        local b = Board:new{ level = CLASSIC, optimal = 81 }
+        local s = b:blockAt(5, 1)
+        assert.is_true(b:move(s, 17))
+        assert.is_true(b:move(s, 18))
+        assert.are.equal(1, b:getMoves())
+        -- Back where the move began: no move at all.
+        assert.is_true(b:move(s, 16))
+        assert.are.equal(0, b:getMoves())
+        assert.is_true(b:move(s, 18))
+        local v = b:blockAt(3, 1)
+        assert.is_true(b:slide(v, "down"))
+        assert.are.equal(2, b:getMoves())
+        -- Undo takes back whole moves.
+        assert.is_true(b:undoMove())
+        assert.is_true(b:undoMove())
+        assert.are.equal(CLASSIC, Solver.format(b.blocks))
+        assert.is_false(b:undoMove())
+    end)
+
+    it("detects the win and restarts", function()
+        local b = Board:new{ level = CORNER, optimal = 2 }
+        local s = b:blockAt(4, 2)
+        assert.are.equal("S", b:kindOf(s))
+        assert.is_true(b:move(s, 14))    -- one step right: still in the way
+        assert.is_true(b:restart())
+        assert.are.equal(0, b:getMoves())
+        assert.is_true(b:move(s, 17))    -- down
+        assert.is_true(b:move(s, 16))    -- and left: the same move
+        assert.are.equal(1, b:getMoves())
+        assert.is_false(b:isWon())
+        assert.is_true(b:slide(1, "down"))
+        assert.is_true(b:isWon())
+        assert.are.equal(2, b:getMoves())
+        assert.is_false(b:move(s, 17))
+        assert.is_false(b:canUndo())
+        assert.is_false(b:restart())
+    end)
+
+    it("gives hints that each bring the exit one move closer", function()
+        local b = Board:new{ level = CLASSIC, optimal = 81 }
+        -- Scramble a little first, so hints start off the stored path.
+        math.randomseed(5)
+        for _ = 1, 8 do
+            local i = math.random(#b.blocks)
+            local r = b:reach(i)
+            if #r > 0 then b:move(i, r[math.random(#r)]) end
+        end
+        local left = b:remaining()
+        assert.is_truthy(left)
+        local moves = b:getMoves()
+        while not b:isWon() do
+            local before = b:remaining()
+            local step = b:findHint()
+            assert.is_truthy(step)
+            assert.are.equal(step.v, b:blockAt(step.r, step.c))
+            assert.is_true(b:applyHint(step))
+            local after = b:isWon() and 0 or b:remaining()
+            assert.are.equal(before - 1, after)
+        end
+        -- The first hint may extend the player's last move (same block): then
+        -- it costs no extra move.
+        assert.is_true(b:getMoves() - moves <= left and b:getMoves() - moves >= left - 1)
+        local step, why = b:findHint()
+        assert.is_nil(step)
+        assert.are.equal("complete", why)
+    end)
+
+    it("steps through the solution one way", function()
+        local b = Board:new{ level = CORNER, optimal = 2 }
+        assert.is_true(b:showSolution())
+        assert.is_true(b:isShowingSolution())
+        assert.are.equal(2, #b.solution)
+        assert.is_false(b:slide(1, "down"))
+        assert.is_false(b:solutionStep(-1))
+        assert.is_truthy(b:nextSolutionMove())
+        assert.is_true(b:solutionStep(1))
+        assert.is_true(b:solutionStep(1))
+        assert.is_true(Solver.isSolved(b.blocks))
+        assert.is_nil(b:nextSolutionMove())
+        assert.is_false(b:solutionStep(1))
+        assert.is_true(b:solutionStep(-1))
+        assert.is_false(Solver.isSolved(b.blocks))
+    end)
+
+    it("round-trips a save, mid-game, solved and with the solution on show", function()
+        local LEVEL = CORNER
+        local b = Board:new{ level = LEVEL, optimal = 2, band = "easy", index = 7 }
+        local s = b:blockAt(4, 2)
+        b:move(s, 17)
+        b:noteHintUsed()
+        local c = Board:new()
+        assert.is_true(c:load(b:serialize()))
+        assert.are.equal(Solver.format(b.blocks), Solver.format(c.blocks))
+        assert.are.equal(1, c:getMoves())
+        assert.are.equal("easy", c.band)
+        assert.are.equal(7, c.index)
+        assert.are.equal(1, c:getHintsUsed())
+        -- The restored move still merges with the same block.
+        assert.is_true(c:move(s, 16))
+        assert.are.equal(1, c:getMoves())
+        assert.is_true(c:undoMove())
+        assert.are.equal(LEVEL, Solver.format(c.blocks))
+
+        b:move(s, 16)
+        b:slide(1, "down")
+        local d = Board:new()
+        assert.is_true(d:load(b:serialize()))
+        assert.is_true(d:isWon())
+
+        local e = Board:new{ level = CLASSIC, optimal = 81, band = "classic", index = 1, name = "Red Donkey" }
+        e:showSolution()
+        e:solutionStep(1)
+        local f = Board:new()
+        assert.is_true(f:load(e:serialize()))
+        assert.is_true(f:isShowingSolution())
+        assert.are.equal("Red Donkey", f.name)
+        assert.are.equal(1, f.sol_step)
+        assert.are.equal(Solver.format(e.blocks), Solver.format(f.blocks))
+        assert.is_true(f:solutionStep(1))
+    end)
+
+    it("refuses corrupt saves", function()
+        local b = Board:new()
+        assert.is_false(b:load(nil))
+        assert.is_false(b:load({ level = "nonsense" }))
+        local good = Board:new{ level = CLASSIC }:serialize()
+        good.pos = { 1, 0 }   -- blocks missing
+        assert.is_false(b:load(good))
+        good = Board:new{ level = CLASSIC }:serialize()
+        good.pos[1] = 0       -- the 2×2 on top of a vertical
+        assert.is_false(b:load(good))
+        good = Board:new{ level = CLASSIC }:serialize()
+        good.pos[1] = 3       -- sticking out of the tray
+        assert.is_false(b:load(good))
+    end)
+end)
+
+describe("level bank", function()
+    local Levels, Solver, Board
+    setup(function()
+        Levels = require("levels")
+        Solver = require("solver")
+        Board  = require("board")
+    end)
+
+    local RANGES = {
+        easy    = { 5, 15 },
+        medium  = { 16, 35 },
+        hard    = { 36, 60 },
+        expert  = { 61, 999 },
+        classic = { 1, 999 },
+    }
+
+    it("holds 400 levels per difficulty and the classics, each within its band", function()
+        local seen = {}
+        for _, band in ipairs(Levels.BANDS) do
+            local n = Levels.count(band)
+            assert.are.equal(band == "classic" and 8 or 400, n)
+            for i = 1, n do
+                local lv = Levels.get(band, i)
+                assert.is_truthy(Solver.parse(lv.str), lv.str)
+                assert.is_true(lv.optimal >= RANGES[band][1] and lv.optimal <= RANGES[band][2], lv.str)
+                -- Unique, mirror images included, across the whole bank.
+                assert.is_nil(seen[lv.str], lv.str)
+                seen[lv.str] = true
+                seen[Solver.mirror(lv.str)] = true
+                if band == "classic" then
+                    assert.is_truthy(lv.name)
+                elseif i > 1 then
+                    assert.is_true(lv.optimal >= Levels.get(band, i - 1).optimal)
+                end
+            end
+        end
+        assert.are.equal(CLASSIC, Levels.get("classic", 1).str)
+        assert.are.equal(81, Levels.get("classic", 1).optimal)
+    end)
+
+    it("stores the exact optimal count (sampled)", function()
+        for _, band in ipairs(Levels.BANDS) do
+            local n = Levels.count(band)
+            for i = 1, n, 50 do
+                local lv = Levels.get(band, i)
+                assert.are.equal(lv.optimal, Solver.distance(Solver.parse(lv.str)), band .. " #" .. i)
+            end
+            local lv = Levels.get(band, n)
+            assert.are.equal(lv.optimal, Solver.distance(Solver.parse(lv.str)), band .. " last")
+        end
+    end)
+
+    it("is solved by following hints in exactly the optimal count (sampled)", function()
+        for _, band in ipairs(Levels.BANDS) do
+            for i = 1, Levels.count(band), 133 do
+                local lv = Levels.get(band, i)
+                local b = Board:new{ level = lv.str, optimal = lv.optimal }
+                local steps = 0
+                while not b:isWon() and steps <= lv.optimal do
+                    assert.is_true(b:applyHint(b:findHint()))
+                    steps = steps + 1
+                end
+                assert.is_true(b:isWon())
+                assert.are.equal(lv.optimal, steps)
+                assert.are.equal(lv.optimal, b:getMoves())
+            end
+        end
+    end)
+
+    it("keeps every cluster small enough for the hint search (sampled)", function()
+        for _, band in ipairs(Levels.BANDS) do
+            for i = 1, Levels.count(band), 57 do
+                local lv = Levels.get(band, i)
+                local states = Solver.cluster(Solver.encode(Solver.parse(lv.str)))
+                assert.is_true(#states <= 100000, band .. " #" .. i .. ": " .. #states)
+            end
+        end
+    end)
+end)

@@ -1,0 +1,13 @@
+# Named classic layouts: "<20-character tray> <name>". The optimal count is
+# computed by merge_levels.lua. The first four are traditional openings of the
+# Chinese "Hua Rong Dao" family (the first is the standard "L'Âne rouge" /
+# "Forget-me-not" start); the last four are the farthest-from-solved starts
+# the generator found for their block sets.
+^AA^vAAv^<>^voovo..o Red Donkey
+^AA^vAAvo<>o^oo^v..v Calm Command
+^AA^vAAvoooo^<>^v..v Side by Side
+oAAo^AA^v<>v^oo^v..v Three Columns
+.AA^oAAv^<>^v^.vovoo The Long Way
+AAooAA<><>o..^<>ov<> Crosswind
+AA.^AAov.^<>ov<>oo<> Off Centre
+^ooov^AA^vAAv<>.<>o. Winding Road

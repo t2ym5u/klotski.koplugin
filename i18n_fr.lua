@@ -1,0 +1,30 @@
+return {
+    ["Klotski"] = { fr = "L'Âne rouge", es = "Klotski", de = "Klotski" },
+    ["Sliding-block puzzle: slide the blocks around the tray to bring the big square out through the gap at the bottom. The classic Red Donkey and 1600 more levels in four difficulties, hints and a Daily Challenge."] = { fr = "Casse-tête de blocs coulissants : faites glisser les blocs sur le plateau pour amener le gros carré à l'ouverture du bas. L'Âne rouge classique et 1600 autres niveaux en quatre difficultés, indices et Défi du jour.", es = "Rompecabezas de bloques deslizantes: desliza los bloques por la bandeja para llevar el cuadrado grande a la salida de abajo. El clásico burro rojo y 1600 niveles más en cuatro dificultades, pistas y Desafío diario.", de = "Schiebepuzzle: Schiebe die Blöcke durch das Feld, bis der große Block an der Öffnung unten steht. Der klassische Rote Esel und 1600 weitere Level in vier Schwierigkeitsstufen, Tipps und Tägliche Herausforderung." },
+    ["Classics"]      = { fr = "Classiques", es = "Clásicos", de = "Klassiker" },
+    -- Names of the classic layouts.
+    ["Red Donkey"]    = { fr = "L'Âne rouge", es = "El burro rojo", de = "Roter Esel" },
+    ["Calm Command"]  = { fr = "Sang-froid", es = "Mando sereno", de = "Ruhiges Kommando" },
+    ["Side by Side"]  = { fr = "Côte à côte", es = "Codo con codo", de = "Seite an Seite" },
+    ["Three Columns"] = { fr = "Trois colonnes", es = "Tres columnas", de = "Drei Kolonnen" },
+    ["The Long Way"]  = { fr = "Le long chemin", es = "El camino largo", de = "Der lange Weg" },
+    ["Crosswind"]     = { fr = "Vent de travers", es = "Viento cruzado", de = "Seitenwind" },
+    ["Off Centre"]    = { fr = "Décentré", es = "Descentrado", de = "Außermittig" },
+    ["Winding Road"]  = { fr = "Route sinueuse", es = "Camino sinuoso", de = "Kurvenreiche Straße" },
+    -- Same text as trafficjam / hanoi / lightsout / lits: repeated so this
+    -- plugin works alone.
+    ["Moves: %1"]    = { fr = "Coups : %1", es = "Movimientos: %1", de = "Züge: %1" },
+    ["Optimal: %1"]  = { fr = "Optimal : %1", es = "Óptimo: %1", de = "Optimal: %1" },
+    ["Restart"]      = { fr = "Recommencer", es = "Reiniciar", de = "Neu starten" },
+    ["Level"]        = { fr = "Niveau", es = "Nivel", de = "Level" },
+    ["Level: %1"]    = { fr = "Niveau : %1", es = "Nivel: %1", de = "Level: %1" },
+    ["No. %1"]       = { fr = "Nº %1", es = "N.º %1", de = "Nr. %1" },
+    ["Solved: %1/%2"] = { fr = "Résolus : %1/%2", es = "Resueltos: %1/%2", de = "Gelöst: %1/%2" },
+    ["Step back"]    = { fr = "Reculer", es = "Atrás", de = "Zurück" },
+    ["Step forward"] = { fr = "Avancer", es = "Adelante", de = "Vor" },
+    ["Solution: move %1/%2"] = { fr = "Solution : coup %1/%2", es = "Solución: movimiento %1/%2", de = "Lösung: Zug %1/%2" },
+    ["Solved in %1 moves, the optimum! Time: %2"] = { fr = "Résolu en %1 coups, l'optimum ! Temps : %2", es = "¡Resuelto en %1 movimientos, el óptimo! Tiempo: %2", de = "In %1 Zügen gelöst, optimal! Zeit: %2" },
+    ["Solved in %1 moves (optimal: %2). Time: %3"] = { fr = "Résolu en %1 coups (optimal : %2). Temps : %3", es = "Resuelto en %1 movimientos (óptimo: %2). Tiempo: %3", de = "In %1 Zügen gelöst (optimal: %2). Zeit: %3" },
+    ["Hint played."] = { fr = "Astuce jouée.", es = "Pista jugada.", de = "Tipp ausgeführt." },
+    ["Move the marked block to the dashed box."] = { fr = "Déplacez le bloc marqué au cadre pointillé.", es = "Mueve el bloque marcado al recuadro discontinuo.", de = "Bewege den markierten Block in den gestrichelten Rahmen." },
+}
