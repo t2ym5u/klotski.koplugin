@@ -495,4 +495,10 @@ function KlotskiScreen:_updateButtons()
     if self.restart_btn then self.restart_btn:enableDisable(self.board:canUndo()) end
 end
 
+-- The level bank is only needed while the game is open: drop it when the
+-- screen closes (the next game parses it again).
+function KlotskiScreen:onCloseWidget()
+    Levels.release()
+end
+
 return KlotskiScreen

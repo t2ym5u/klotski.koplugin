@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] - 2026-11-04
+
+### Changed
+- Hints and "Show solution" from the start of a level are now instant: every
+  level ships with its optimal solution, so the first hint (and every hint
+  that follows it) no longer searches. On the largest levels the first hint
+  went from up to ~0.1 s on a desktop (~2.5 s on a Kobo) to about 1 ms. The
+  hints are exactly the same moves as before.
+- After you leave the suggested path, a hint still searches from your
+  position (behind the progress bar when it takes a moment), as before.
+- Uses less memory: the game loads when you open it, not when KOReader
+  starts, so it no longer takes memory or startup time while unplayed.
+- Uses less memory: the level bank loads when the game opens and is freed
+  when it closes.
+
 ## [1.1.0] - 2026-11-04
 
 ### Changed

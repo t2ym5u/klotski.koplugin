@@ -427,6 +427,91 @@ function Solver.solve(blocks, max_states, on_progress)
     return path
 end
 
+-- ---------------------------------------------------------------------------
+-- Packed solutions
+-- ---------------------------------------------------------------------------
+
+-- The level bank ships each level's optimal solution (the one solve() finds),
+-- so the first hint, and every hint that follows it, needs no search: on the
+-- largest levels that search took ~0.1 s on a desktop, ~2.5 s on a Kobo.
+--
+-- A move is written as its rank among the moves eachMove() lists from the
+-- layout it is played in. Ranks are packed several to a character, mixed
+-- radix: a character holds the next moves while the product of their move
+-- counts stays within the alphabet, and the reader, replaying the same
+-- layouts, knows each count. The alphabet is printable ASCII without the
+-- space and "]", so the text sits in a long-bracket string.
+local ALPHA = {}
+for b = 33, 126 do
+    if b ~= 93 then ALPHA[#ALPHA + 1] = string.char(b) end
+end
+local RADIX = #ALPHA
+local ALPHA_VAL = {}
+for i, ch in ipairs(ALPHA) do ALPHA_VAL[ch:byte()] = i - 1 end
+
+-- The moves out of `key`, in eachMove() order: list of { from, to, key }.
+local function moveList(key)
+    local list = {}
+    eachMove(key, function(from, to, nk)
+        list[#list + 1] = { from = from, to = to, key = nk }
+    end)
+    return list
+end
+
+-- `path` (a list of { from, to } played from `blocks`) as text, or nil if a
+-- move isn't legal.
+function Solver.packPath(blocks, path)
+    local key = Solver.encode(blocks)
+    local out, v, prod = {}, 0, 1
+    for _, m in ipairs(path) do
+        local list = moveList(key)
+        local rank
+        for r, mv in ipairs(list) do
+            if mv.from == m.from and mv.to == m.to then rank = r break end
+        end
+        if not rank then return nil end
+        local n = #list
+        if prod * n > RADIX then
+            out[#out + 1] = ALPHA[v + 1]
+            v, prod = 0, 1
+        end
+        v = v + (rank - 1) * prod
+        prod = prod * n
+        key = list[rank].key
+    end
+    if prod > 1 then out[#out + 1] = ALPHA[v + 1] end
+    return table.concat(out)
+end
+
+-- Reads back `n` moves packed by packPath() from `blocks`. Returns the path
+-- ({ from, to } list), or nil if the text doesn't fit the layout or the path
+-- doesn't end solved.
+function Solver.unpackPath(blocks, text, n)
+    if type(text) ~= "string" or type(n) ~= "number" then return nil end
+    local key = Solver.encode(blocks)
+    local path = {}
+    local pos, v, prod = 0, 0, RADIX
+    for i = 1, n do
+        local list = moveList(key)
+        local cnt = #list
+        if cnt == 0 then return nil end
+        if prod * cnt > RADIX then
+            pos = pos + 1
+            v = ALPHA_VAL[text:byte(pos) or 0]
+            if not v then return nil end
+            prod = 1
+        end
+        local rank = v % cnt
+        v = (v - rank) / cnt
+        prod = prod * cnt
+        local mv = list[rank + 1]
+        path[i] = { from = mv.from, to = mv.to }
+        key = mv.key
+    end
+    if pos ~= #text or not Solver.isSolvedKey(key) then return nil end
+    return path
+end
+
 -- Optimal move count, or nil plus the reason.
 function Solver.distance(blocks, max_states)
     local path, why = Solver.solve(blocks, max_states)
