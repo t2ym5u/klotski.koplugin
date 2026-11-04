@@ -195,19 +195,6 @@ end
 -- Moves
 -- ---------------------------------------------------------------------------
 
--- The plan (an optimal path from the current state) survives a move that
--- follows it, so a run of hints costs one search.
-function KlotskiBoard:_advancePlan(from, to)
-    local plan = self._plan
-    if plan and plan.path[1] and plan.path[1].from == from and plan.path[1].to == to then
-        local rest = {}
-        for k = 2, #plan.path do rest[#rest + 1] = plan.path[k] end
-        self._plan = { key = Solver.encode(self.blocks), path = rest }
-    else
-        self._plan = nil
-    end
-end
-
 -- Moves block i to anchor `to`, which must be in its reach. Returns true if
 -- it moved.
 function KlotskiBoard:move(i, to)
@@ -232,7 +219,6 @@ function KlotskiBoard:move(i, to)
         self.history[#self.history + 1] = { i, from, to }
     end
     b.a = to
-    self:_advancePlan(from, to)
     self.hint_shown = nil
     if Solver.isSolved(self.blocks) then
         self.won = true
@@ -253,7 +239,6 @@ function KlotskiBoard:undoMove()
     if not self:canUndo() then return false end
     local h = table.remove(self.history)
     self.blocks[h[1]].a = h[2]
-    self._plan = nil
     self.hint_shown = nil
     return true
 end
@@ -265,7 +250,6 @@ function KlotskiBoard:restart()
     self.history = {}
     self.selected = nil
     self.hint_shown = nil
-    self._plan = nil
     return true
 end
 
@@ -286,13 +270,40 @@ end
 
 -- An optimal path from the current state ({ from, to } anchors), or nil plus
 -- a reason.
-function KlotskiBoard:plan()
+--
+-- The plan remembers every layout along its path, so following the hints
+-- (or the solution), undoing back along it or restarting never searches
+-- again; only leaving the path does. It is dropped with the level.
+function KlotskiBoard:plan(on_progress)
     local key = Solver.encode(self.blocks)
-    if self._plan and self._plan.key == key then return self._plan.path end
-    local path, why = Solver.solve(self.blocks, SOLVE_BUDGET)
+    local pl = self._plan
+    if pl then
+        local i = pl.at[key]
+        if i then
+            if i == 1 then return pl.path end
+            local rest = {}
+            for k = i, #pl.path do rest[#rest + 1] = pl.path[k] end
+            return rest
+        end
+    end
+    local path, why = Solver.solve(self.blocks, SOLVE_BUDGET, on_progress)
     if not path then return nil, why end
-    self._plan = { key = key, path = path }
+    -- at[key of the layout before move i] = i (and the solved end, #path + 1).
+    local at, blocks = { [key] = 1 }, copyBlocks(self.blocks)
+    for i, m in ipairs(path) do
+        for _, b in ipairs(blocks) do
+            if b.a == m.from then b.a = m.to break end
+        end
+        at[Solver.encode(blocks)] = i + 1
+    end
+    self._plan = { at = at, path = path }
     return path
+end
+
+-- Whether plan() would answer without searching.
+function KlotskiBoard:hasPlan()
+    local pl = self._plan
+    return pl ~= nil and pl.at[Solver.encode(self.blocks)] ~= nil
 end
 
 -- Optimal number of moves left from here.

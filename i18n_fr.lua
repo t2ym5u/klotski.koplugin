@@ -27,4 +27,5 @@ return {
     ["Solved in %1 moves (optimal: %2). Time: %3"] = { fr = "Résolu en %1 coups (optimal : %2). Temps : %3", es = "Resuelto en %1 movimientos (óptimo: %2). Tiempo: %3", de = "In %1 Zügen gelöst (optimal: %2). Zeit: %3" },
     ["Hint played."] = { fr = "Astuce jouée.", es = "Pista jugada.", de = "Tipp ausgeführt." },
     ["Move the marked block to the dashed box."] = { fr = "Déplacez le bloc marqué au cadre pointillé.", es = "Mueve el bloque marcado al recuadro discontinuo.", de = "Bewege den markierten Block in den gestrichelten Rahmen." },
+    ["Thinking…"] = { fr = "Réflexion…", es = "Pensando…", de = "Denke nach…" },
 }
