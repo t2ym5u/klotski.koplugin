@@ -73,6 +73,23 @@ for code, s in pairs(SHAPE) do
 end
 
 -- Cells (0-based, row-major) covered by a block of `code` at anchor a.
+-- MCONTRIB[code][a]: what a block at anchor `a` contributes to the key of
+-- the mirrored layout (left <-> right), so a move can update both keys with
+-- two lookups. The goal is symmetric, so a layout and its mirror are the
+-- same distance from it, and the search below only explores one of the two.
+local MCONTRIB = {}
+for code, s in pairs(SHAPE) do
+    MCONTRIB[code] = {}
+    for a = 0, W * H - 1 do
+        local r, c = floor(a / W), a % W
+        if CONTRIB[code][a] then
+            MCONTRIB[code][a] = CONTRIB[code][r * W + (W - c - s.w)]
+        else
+            MCONTRIB[code][a] = false
+        end
+    end
+end
+
 local function cellsOf(code, a, out)
     out = out or {}
     local s = SHAPE[code]
@@ -275,9 +292,10 @@ local function reachFrom(code, from, occ)
     return tail
 end
 
--- Calls fn(from, to, newkey) for every move out of the state `key`.
+-- Calls fn(from, to, newkey) for every move out of the state `key`; with
+-- `mkey` (the key of its mirror image) given, fn(from, to, newkey, newmkey).
 local g, occ, found = {}, {}, {}
-local function eachMove(key, fn)
+local function eachMove(key, fn, mkey)
     decode(key, g)
     for i = 0, W * H - 1 do occ[i] = g[i] ~= 0 end
     for a = 0, W * H - 1 do
@@ -291,9 +309,18 @@ local function eachMove(key, fn)
             for k = 1, #own do occ[own[k]] = true end
             local con = CONTRIB[code]
             local base = key - con[a]
-            for k = 2, n do
-                local to = found[k]
-                fn(a, to, base + con[to])
+            if mkey then
+                local mcon = MCONTRIB[code]
+                local mbase = mkey - mcon[a]
+                for k = 2, n do
+                    local to = found[k]
+                    fn(a, to, base + con[to], mbase + mcon[to])
+                end
+            else
+                for k = 2, n do
+                    local to = found[k]
+                    fn(a, to, base + con[to])
+                end
             end
         end
     end
@@ -319,43 +346,83 @@ end
 -- Search
 -- ---------------------------------------------------------------------------
 
+-- Key of the mirror image of `blocks`.
+local function mirrorEncode(blocks)
+    local key = 0
+    for _, b in ipairs(blocks) do key = key + MCONTRIB[b.code][b.a] end
+    return key
+end
+
 -- Optimal solution from `blocks`: a list of moves { from = anchor, to =
 -- anchor }, empty when already solved. Returns nil, "unsolvable" when the
 -- exit can't be reached, nil, "budget" past max_states explored.
-function Solver.solve(blocks, max_states)
+--
+-- Breadth-first over layouts up to mirror image: a layout and its mirror
+-- count as one state (the smaller of the two keys names it), which halves
+-- the states to visit -- a hint used to take up to 0.15 s on a desktop,
+-- ~4 s on a Kobo. max_states counts these merged states. Only the parent of
+-- each state is kept; the moves themselves are found again along the one
+-- path at the end.
+--
+-- on_progress (optional): called every few thousand states with a rough
+-- fraction done (states seen against PROGRESS_STATES), for a progress bar.
+local PROGRESS_STATES = 50000
+function Solver.solve(blocks, max_states, on_progress)
     max_states = max_states or 200000
-    local start = Solver.encode(blocks)
+    local start, mstart = Solver.encode(blocks), mirrorEncode(blocks)
     if Solver.isSolvedKey(start) then return {} end
-    local parent, via = { [start] = false }, {}
-    local q, head, tail = { start }, 1, 1
+    local cstart = start < mstart and start or mstart
+    local parent = { [cstart] = false }
+    -- The queue holds the layout actually reached (and its mirror's key).
+    local q, mq, head, tail = { start }, { mstart }, 1, 1
     local found
     local count = 1
-    local key
+    local ckey
     local goal_pow = POW[Solver.GOAL]
-    local function visit(from, to, nk)
-        if found or parent[nk] ~= nil then return end
-        parent[nk] = key
-        via[nk] = from * 32 + to
+    local function visit(_, _, nk, nmk)
+        if found then return end
+        local c = nk < nmk and nk or nmk
+        if parent[c] ~= nil then return end
+        parent[c] = ckey
         count = count + 1
-        if floor(nk / goal_pow) % 6 == 4 then found = nk return end
+        if floor(nk / goal_pow) % 6 == 4 then found = c return end
         tail = tail + 1
-        q[tail] = nk
+        q[tail], mq[tail] = nk, nmk
     end
     while head <= tail do
-        key = q[head]
-        q[head] = nil
+        local key, mkey = q[head], mq[head]
+        q[head], mq[head] = nil, nil
         head = head + 1
-        eachMove(key, visit)
+        ckey = key < mkey and key or mkey
+        eachMove(key, visit, mkey)
         if found then break end
         if count > max_states then return nil, "budget" end
+        if on_progress and head % 4096 == 0 then
+            on_progress(math.min(1, count / PROGRESS_STATES))
+        end
     end
     if not found then return nil, "unsolvable" end
-    local path = {}
+    -- The chain of merged states, start first.
+    local chain = {}
     local k = found
-    while parent[k] do
-        local m = via[k]
-        table.insert(path, 1, { from = floor(m / 32), to = m % 32 })
+    while k do
+        table.insert(chain, 1, k)
         k = parent[k]
+    end
+    -- Replay it on the real layout: at each step, one of the moves leads to
+    -- the next state of the chain (itself or its mirror).
+    local path = {}
+    local key, mkey = start, mstart
+    for i = 2, #chain do
+        local want = chain[i]
+        local step
+        eachMove(key, function(from, to, nk, nmk)
+            if not step and (nk < nmk and nk or nmk) == want then
+                step = { from = from, to = to, key = nk, mkey = nmk }
+            end
+        end, mkey)
+        path[#path + 1] = { from = step.from, to = step.to }
+        key, mkey = step.key, step.mkey
     end
     return path
 end

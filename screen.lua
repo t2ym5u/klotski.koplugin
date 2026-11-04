@@ -21,6 +21,7 @@ local T               = require("ffi/util").template
 
 local ScreenBase   = require("screen_base")
 local DailySeed    = require("daily_seed")
+local GenProgress  = require("gen_progress")
 local MenuHelper   = require("menu_helper")
 local Board        = lrequire("board")
 local BoardWidget  = lrequire("board_widget")
@@ -300,8 +301,19 @@ function KlotskiScreen:describeHintStep(_step, level)
     return _("Hint played.")
 end
 
+-- Runs the solver search ahead of a hint or the solution when its answer
+-- isn't known yet, behind a progress bar: from a fresh position the search
+-- can take a couple of seconds on an e-reader (it appears after 0.2 s).
+function KlotskiScreen:_planAhead()
+    local b = self.board
+    if b:isWon() or b:isShowingSolution() or b:hasPlan() then return end
+    GenProgress.run(function(on_progress) b:plan(on_progress) end,
+        { title = _("Thinking…") })
+end
+
 -- A hint can bring the big block home, so the round may end here.
 function KlotskiScreen:onHint()
+    self:_planAhead()
     ScreenBase.onHint(self)
     local b = self.board
     if b:isWon() then
@@ -313,6 +325,7 @@ function KlotskiScreen:onHint()
 end
 
 function KlotskiScreen:onShowSolution()
+    self:_planAhead()
     if not self.board:showSolution() then
         self:updateStatus(_("No hint is available here."))
         return

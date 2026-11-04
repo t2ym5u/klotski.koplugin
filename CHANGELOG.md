@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2026-11-04
+
+### Changed
+- Hints and "Show solution" search about twice as fast: a layout and its
+  mirror image are now one position for the solver (they are the same number
+  of moves from the exit). The slowest first hint went from ~0.24 s to
+  ~0.11 s on a desktop, i.e. from ~5 s to ~2.5 s on a Kobo; most take well
+  under a second. Hints stay optimal (checked on 4,800 positions), though
+  when two moves are equally good the one suggested may differ.
+- A hint that needs a search shows a progress bar when it takes a moment.
+- Following the hints, undoing back along them or restarting no longer
+  searches again.
+
 ## [1.0.3] - 2026-11-03
 
 ### Changed

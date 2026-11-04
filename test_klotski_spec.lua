@@ -257,6 +257,33 @@ describe("KlotskiBoard", function()
         assert.are.equal("complete", why)
     end)
 
+    it("keeps its plan along the path: undo, restart and hints search once", function()
+        local b = Board:new{ level = CLASSIC, optimal = 81 }
+        assert.are.equal(81, b:remaining())
+        local plan = b._plan                -- a new search would replace it
+        for _ = 1, 5 do assert.is_true(b:applyHint(b:findHint())) end
+        assert.are.equal(76, b:remaining())
+        assert.is_true(b:undoMove())
+        assert.are.equal(77, b:remaining())
+        assert.is_true(b:restart())
+        assert.are.equal(81, b:remaining())
+        assert.are.equal(plan, b._plan)
+        -- Off the path, it searches again (and stays optimal).
+        local moved = false
+        for i = 1, #b.blocks do
+            for _, to in ipairs(b:reach(i)) do
+                local from = b.blocks[i].a
+                b.blocks[i].a = to
+                local on_path = plan.at[Solver.encode(b.blocks)]
+                b.blocks[i].a = from
+                if not on_path and not moved then moved = b:move(i, to) end
+            end
+        end
+        assert.is_true(moved)
+        assert.is_truthy(b:remaining())
+        assert.are_not.equal(plan, b._plan)
+    end)
+
     it("steps through the solution one way", function()
         local b = Board:new{ level = CORNER, optimal = 2 }
         assert.is_true(b:showSolution())
@@ -403,6 +430,21 @@ describe("level bank", function()
                 local states = Solver.cluster(Solver.encode(Solver.parse(lv.str)))
                 assert.is_true(#states <= 100000, band .. " #" .. i .. ": " .. #states)
             end
+        end
+    end)
+
+    it("answers a hint from the hardest level starts quickly", function()
+        -- The slowest starts of the bank (2026-11 audit): ~0.15 s each on a
+        -- desktop with the plain BFS, ~0.07 s merging mirror images. A Kobo
+        -- is ~25x slower; the bound is generous for a loaded machine.
+        local Levels = require("levels")
+        local Solver = require("solver")
+        for _, c in ipairs({ { "medium", 146 }, { "hard", 38 }, { "expert", 362 }, { "classic", 8 } }) do
+            local lv = Levels.get(c[1], c[2])
+            local t0 = os.clock()
+            local path = Solver.solve(Solver.parse(lv.str), 110000)
+            assert.is_true(os.clock() - t0 < 0.3, c[1] .. " #" .. c[2])
+            assert.are.equal(lv.optimal, #path)
         end
     end)
 end)
