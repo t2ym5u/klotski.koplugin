@@ -370,6 +370,17 @@ describe("level bank", function()
         classic = { 1, 999 },
     }
 
+    it("parses the bank on first use and drops it on release()", function()
+        Levels.release()
+        assert.is_false(Levels.isLoaded())
+        local first = Levels.get("easy", 1).str
+        assert.is_true(Levels.isLoaded())
+        Levels.release()
+        assert.is_false(Levels.isLoaded())
+        assert.are.equal(first, Levels.get("easy", 1).str)
+        assert.are.equal(400, Levels.count("easy"))
+    end)
+
     it("holds 400 levels per difficulty and the classics, each within its band", function()
         local seen = {}
         for _, band in ipairs(Levels.BANDS) do
@@ -433,8 +444,78 @@ describe("level bank", function()
         end
     end)
 
+    it("ships each level's solution: legal, optimal, the search's own (all levels)", function()
+        for _, band in ipairs(Levels.BANDS) do
+            for i = 1, Levels.count(band) do
+                local lv = Levels.get(band, i)
+                local blocks = Solver.parse(lv.str)
+                local path = Solver.unpackPath(blocks, lv.packed, lv.optimal)
+                assert.is_truthy(path, band .. " #" .. i)
+                assert.are.equal(lv.optimal, #path)
+                -- The same moves the search finds (sampled: it is slower).
+                if i % 97 == 1 then
+                    assert.are.same(Solver.solve(blocks, 110000), path, band .. " #" .. i)
+                end
+            end
+        end
+    end)
+
+    it("packs and unpacks any path, and rejects data that doesn't fit", function()
+        math.randomseed(11)
+        for _, c in ipairs({ { "classic", 1 }, { "easy", 7 }, { "hard", 200 }, { "expert", 400 } }) do
+            local lv = Levels.get(c[1], c[2])
+            local blocks = Solver.parse(lv.str)
+            local best = Solver.unpackPath(blocks, lv.packed, lv.optimal)
+            -- A detour first (a block there and back, many times), then the
+            -- optimal path: any legal path that ends solved round-trips.
+            local path = {}
+            local key = Solver.encode(blocks)
+            for _ = 1, 40 do
+                local opts = {}
+                Solver.eachMove(key, function(from, to) opts[#opts + 1] = { from = from, to = to } end)
+                local m = opts[math.random(#opts)]
+                path[#path + 1] = m
+                path[#path + 1] = { from = m.to, to = m.from }
+            end
+            for _, m in ipairs(best) do path[#path + 1] = m end
+            local text = assert(Solver.packPath(blocks, path))
+            assert.are.same(path, Solver.unpackPath(blocks, text, #path))
+            -- Wrong length, foreign layout, an illegal move or junk: nil.
+            assert.is_nil(Solver.unpackPath(blocks, text, #path - 1))
+            assert.is_nil(Solver.unpackPath(blocks, lv.packed .. "!", lv.optimal))
+            assert.is_nil(Solver.unpackPath(Solver.parse(CORNER), lv.packed, lv.optimal))
+            assert.is_nil(Solver.packPath(blocks, { { from = 19, to = 0 } }))
+            assert.is_nil(Solver.unpackPath(blocks, nil, 3))
+        end
+    end)
+
+    it("gives the first hint of every level without searching", function()
+        local worst = 0
+        for _, band in ipairs(Levels.BANDS) do
+            for i = 1, Levels.count(band) do
+                local lv = Levels.get(band, i)
+                local b = Board:new()
+                b:setLevel(lv.str, lv.optimal, band, i, nil, lv.name)
+                local t0 = os.clock()
+                assert.is_true(b:hasPlan(), band .. " #" .. i)
+                assert.is_truthy(b:findHint())
+                worst = math.max(worst, os.clock() - t0)
+                assert.are.equal(lv.optimal, b:remaining())
+            end
+        end
+        -- ~1 ms on a desktop (the search it replaces took up to ~0.1 s).
+        assert.is_true(worst < 0.05, "worst " .. worst)
+        -- A level that isn't the bank's (or a stale save) still searches.
+        local lv = Levels.get("hard", 1)
+        local b = Board:new()
+        b:setLevel(Levels.get("hard", 2).str, lv.optimal, "hard", 1)
+        assert.is_false(b:hasPlan())
+        assert.is_truthy(b:findHint())
+    end)
+
     it("answers a hint from the hardest level starts quickly", function()
-        -- The slowest starts of the bank (2026-11 audit): ~0.15 s each on a
+        -- Off the shipped solution, a hint searches. The slowest starts of
+        -- the bank (2026-11 audit): ~0.15 s each on a
         -- desktop with the plain BFS, ~0.07 s merging mirror images. A Kobo
         -- is ~25x slower; the bound is generous for a loaded machine.
         local Levels = require("levels")

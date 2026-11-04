@@ -74,7 +74,8 @@ one); mirror images are merged. The picker spreads each band evenly over its
 move counts and block sets, and every pick is solved again with the game's
 own search. Clusters larger than 100 000 layouts are left out so the hint
 search on the reader stays bounded. The game ships the result as
-`levels_data.lua`, one line per level (20-character tray + optimal moves).
+`levels_data.lua`, one line per level (20-character tray, optimal moves and
+the search's solution, packed, so hints from the start need no search).
 Rebuild with `tools/build_levels.sh`.
 
 ## License

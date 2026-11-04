@@ -9,6 +9,9 @@
 -- fixed pseudo-random order: the output is deterministic. Every pick is solved
 -- again with the forward search the game uses, which must find exactly the
 -- same optimum. Bands are written sorted by optimal count.
+--
+-- Each line also carries that search's solution, packed by Solver.packPath,
+-- so the game gives hints along it without searching.
 -- ---------------------------------------------------------------------------
 
 local here = arg[0]:match("(.*[/\\])") or "./"
@@ -29,10 +32,17 @@ local function hash(s)
     return h
 end
 
+-- Solves `str` again: its optimal count must be `d` (when given). Returns the
+-- count and the packed solution.
 local function check(str, d)
     local blocks = assert(S.parse(str))
-    local got = S.distance(blocks, 2000000)
-    if got ~= d then error(("%s: stated %s, solver says %s"):format(str, tostring(d), tostring(got))) end
+    local path = S.solve(blocks, 2000000)
+    local got = path and #path
+    if d and got ~= d then error(("%s: stated %s, solver says %s"):format(str, tostring(d), tostring(got))) end
+    assert(got, "unsolvable " .. str)
+    local packed = assert(S.packPath(blocks, path))
+    assert(#assert(S.unpackPath(blocks, packed, got)) == got)
+    return got, packed
 end
 
 -- Classics first.
@@ -40,12 +50,12 @@ local classics = {}
 for line in io.lines(arg[1]) do
     local str, name = line:match("^(%S+) (.+)$")
     if str and not line:match("^#") then
-        local d = assert(S.distance(assert(S.parse(str)), 2000000), "unsolvable classic " .. str)
-        classics[#classics + 1] = { str = str, d = d, name = name }
+        local d, packed = check(str)
+        classics[#classics + 1] = { str = str, d = d, packed = packed, name = name }
     end
 end
 print("# classic " .. #classics)
-for _, c in ipairs(classics) do print(c.str .. " " .. c.d .. " " .. c.name) end
+for _, c in ipairs(classics) do print(c.str .. " " .. c.d .. " " .. c.packed .. " " .. c.name) end
 
 -- Candidates, bucketed by band, then optimal count, then block set.
 local seen = {}
@@ -111,8 +121,8 @@ for b, band in ipairs(BANDS) do
     end)
     print("# " .. band.id .. " " .. #picked)
     for _, lv in ipairs(picked) do
-        check(lv.str, lv.d)
-        print(lv.str .. " " .. lv.d)
+        local _, packed = check(lv.str, lv.d)
+        print(lv.str .. " " .. lv.d .. " " .. packed)
     end
     io.stderr:write(band.id .. ": " .. #picked .. "\n")
 end

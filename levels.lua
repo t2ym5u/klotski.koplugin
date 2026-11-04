@@ -2,10 +2,11 @@
 -- levels.lua — the level bank (levels_data.lua, built offline by tools/).
 --
 -- levels_data.lua returns one text: a band header per difficulty
--- ("# easy 400") and one line per level, the 20-character tray and its
--- optimal move count (the classics add their name). Each generated band is
+-- ("# easy 400") and one line per level, the 20-character tray, its
+-- optimal move count and that solution packed (see Solver.packPath; the
+-- classics add their name). Each generated band is
 -- sorted by optimal count, so level 1 is the gentlest of its band. Parsed
--- once, on first use.
+-- on first use, dropped by release() when the game closes.
 -- ---------------------------------------------------------------------------
 
 local _dir = debug.getinfo(1, "S").source:sub(2):match("(.*[/\\])") or "./"
@@ -30,9 +31,10 @@ local function load()
         if b then
             band = bank[b]
         elseif band then
-            local str, d, name = line:match("^([%.A%^v<>o]+) (%d+) ?(.*)$")
+            local str, d, packed, name = line:match("^([%.A%^v<>o]+) (%d+) (%S*) ?(.*)$")
             if str and #str == 20 then
-                band[#band + 1] = { str = str, optimal = tonumber(d), name = name ~= "" and name or nil }
+                band[#band + 1] = { str = str, optimal = tonumber(d), packed = packed,
+                                    name = name ~= "" and name or nil }
             end
         end
     end
@@ -52,10 +54,21 @@ function Levels.count(band)
     return t and #t or 0
 end
 
--- Level `index` of `band`: { str, optimal, name }, or nil.
+-- Level `index` of `band`: { str, optimal, packed, name }, or nil.
 function Levels.get(band, index)
     local t = load()[band]
     return t and t[index]
+end
+
+-- The bank (~70 KB of text, a few hundred KB parsed) is only needed while
+-- the game is open: the screen drops it on close and the next use parses
+-- it again (a few ms on a desktop).
+function Levels.release()
+    bank = nil
+end
+
+function Levels.isLoaded()
+    return bank ~= nil
 end
 
 return Levels

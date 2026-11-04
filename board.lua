@@ -9,6 +9,7 @@ end
 
 local Timer  = require("timer")
 local Solver = lrequire("solver")
+local Levels = lrequire("levels")
 
 -- ---------------------------------------------------------------------------
 -- KlotskiBoard — one level in play: where the blocks are, the moves made, the
@@ -74,6 +75,7 @@ function KlotskiBoard:setLevel(str, optimal, band, index, daily, name)
     self.sol_step     = nil
     self.hints_used   = 0
     self._plan        = nil
+    self._seeded      = nil
     self.timer:reset()
     self.timer:start()
     return true
@@ -273,8 +275,10 @@ end
 --
 -- The plan remembers every layout along its path, so following the hints
 -- (or the solution), undoing back along it or restarting never searches
--- again; only leaving the path does. It is dropped with the level.
+-- again; only leaving the path does. It is dropped with the level. A bank
+-- level starts with the solution shipped with it (see _seedPlan).
 function KlotskiBoard:plan(on_progress)
+    self:_seedPlan()
     local key = Solver.encode(self.blocks)
     local pl = self._plan
     if pl then
@@ -288,8 +292,15 @@ function KlotskiBoard:plan(on_progress)
     end
     local path, why = Solver.solve(self.blocks, SOLVE_BUDGET, on_progress)
     if not path then return nil, why end
+    self:_setPlan(self.blocks, path)
+    return path
+end
+
+-- Makes `path`, played from `from_blocks`, the plan.
+function KlotskiBoard:_setPlan(from_blocks, path)
     -- at[key of the layout before move i] = i (and the solved end, #path + 1).
-    local at, blocks = { [key] = 1 }, copyBlocks(self.blocks)
+    local blocks = copyBlocks(from_blocks)
+    local at = { [Solver.encode(blocks)] = 1 }
     for i, m in ipairs(path) do
         for _, b in ipairs(blocks) do
             if b.a == m.from then b.a = m.to break end
@@ -297,11 +308,25 @@ function KlotskiBoard:plan(on_progress)
         at[Solver.encode(blocks)] = i + 1
     end
     self._plan = { at = at, path = path }
-    return path
+end
+
+-- Once per level: the optimal solution shipped with a bank level becomes the
+-- plan, so the first hint and those that follow it need no search (on the
+-- largest levels the search took ~0.1 s on a desktop, ~2.5 s on a Kobo).
+-- Skipped if the level isn't the bank's or the data doesn't replay.
+function KlotskiBoard:_seedPlan()
+    if self._seeded then return end
+    self._seeded = true
+    if self._plan or not self.start_blocks then return end
+    local lv = self.band and self.index and Levels.get(self.band, self.index)
+    if not lv or lv.str ~= self.level or not lv.packed then return end
+    local path = Solver.unpackPath(self.start_blocks, lv.packed, lv.optimal)
+    if path then self:_setPlan(self.start_blocks, path) end
 end
 
 -- Whether plan() would answer without searching.
 function KlotskiBoard:hasPlan()
+    self:_seedPlan()
     local pl = self._plan
     return pl ~= nil and pl.at[Solver.encode(self.blocks)] ~= nil
 end
