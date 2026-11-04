@@ -34,8 +34,10 @@ moves.
   *Easy* 5–15, *Medium* 16–35, *Hard* 36–60, *Expert* 61–138. Each band is
   ordered from its easiest level to its hardest.
 - **Progress** — "New game" opens the next level you haven't solved; the
-  *Level* menu lists every level of the difficulty (✓ on solved ones) and the
-  *Difficulty* menu shows how many you've solved.
+  *Level* menu lists every level of the difficulty (✓ on solved ones, ★ on
+  those solved in the optimal number of moves without a hint) and the
+  *Difficulty* menu shows how many you've solved, and how many in the
+  minimum.
 - **Daily Challenge** — the same level for everyone today (an Expert level
   when Classics is selected).
 - **Hint** — two taps: the first marks the block to move and outlines its

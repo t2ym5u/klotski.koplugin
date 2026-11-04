@@ -74,6 +74,7 @@ function KlotskiBoard:setLevel(str, optimal, band, index, daily, name)
     self.solution     = nil
     self.sol_step     = nil
     self.hints_used   = 0
+    self.hint_seen    = nil
     self._plan        = nil
     self._seeded      = nil
     self.timer:reset()
@@ -373,6 +374,20 @@ end
 
 function KlotskiBoard:noteHintUsed()
     self.hints_used = (self.hints_used or 0) + 1
+    self.hint_seen = true
+end
+
+-- Any hint shown for this level, played or only marked (the first tap
+-- already gives the move away). Restart doesn't clear it.
+function KlotskiBoard:noteHintSeen()
+    self.hint_seen = true
+end
+
+-- True for a win in the level's optimal move count with no hint: what earns
+-- the optimal mark. Moves are counted as the solver counts them (see top).
+function KlotskiBoard:isOptimalWin()
+    return self.won and self.optimal ~= nil and self:getMoves() <= self.optimal
+        and not self.hint_seen and (self.hints_used or 0) == 0
 end
 
 -- One-way: the solution from the current position replaces play. The player
@@ -444,6 +459,7 @@ function KlotskiBoard:serialize()
         history    = hist,
         won        = self.won,
         hints_used = self.hints_used,
+        hint_seen  = self.hint_seen,
         timer      = self.timer:serialize(),
     }
     if self.solution then
@@ -514,6 +530,7 @@ function KlotskiBoard:load(data)
     end
     self.won = Solver.isSolved(self.blocks)
     self.hints_used = tonumber(data.hints_used) or 0
+    self.hint_seen  = data.hint_seen and true or nil
     self.timer:load(data.timer)
     if sol then
         self.solution = sol

@@ -338,6 +338,73 @@ describe("KlotskiBoard", function()
         assert.is_true(f:solutionStep(1))
     end)
 
+    it("credits the optimal mark only for a win in the optimum with no hint", function()
+        -- Round the corner in one move, then the big block down: 2, the optimum.
+        local b = Board:new{ level = CORNER, optimal = 2 }
+        local s = b:blockAt(4, 2)
+        b:move(s, 17)
+        b:move(s, 16)   -- same block straight after: still one move
+        assert.is_false(b:isOptimalWin())
+        b:slide(1, "down")
+        assert.are.equal(2, b:getMoves())
+        assert.is_true(b:isOptimalWin())
+
+        -- An extra move of another block: 3, not optimal.
+        b = Board:new{ level = CORNER, optimal = 2 }
+        b:move(s, 14)
+        b:move(1, b:slideTarget(1, "down") or 1)
+        b:restart()
+        b:noteHintSeen()   -- a hint shown before the restart still counts
+        b:move(s, 16)
+        b:slide(1, "down")
+        assert.is_true(b:isWon())
+        assert.is_false(b:isOptimalWin())
+
+        -- Over the optimum with no hint: the other small block down, then
+        -- this one left, then the big block: 3 moves.
+        b = Board:new{ level = CORNER, optimal = 2 }
+        local o = b:blockAt(4, 1)
+        assert.is_true(b:move(o, 16))
+        assert.is_true(b:move(s, 12))
+        assert.is_true(b:slide(1, "down"))
+        assert.is_true(b:isWon())
+        assert.are.equal(3, b:getMoves())
+        assert.is_false(b:isOptimalWin())
+
+        -- A detour of the same block taken back by Undo doesn't count.
+        b = Board:new{ level = CORNER, optimal = 2 }
+        b:move(o, 16)
+        assert.is_true(b:undoMove())
+        b:move(s, 17)
+        b:move(s, 16)
+        b:slide(1, "down")
+        assert.are.equal(2, b:getMoves())
+        assert.is_true(b:isOptimalWin())
+
+        -- A played hint.
+        b = Board:new{ level = CORNER, optimal = 2 }
+        assert.is_true(b:applyHint(b:findHint()))
+        b:noteHintUsed()
+        assert.is_true(b:applyHint(b:findHint()))
+        assert.is_true(b:isWon())
+        assert.are.equal(2, b:getMoves())
+        assert.is_false(b:isOptimalWin())
+        b:setLevel(CORNER, 2)
+        assert.is_nil(b.hint_seen)
+    end)
+
+    it("keeps the hint flag in the save; old saves have none", function()
+        local b = Board:new{ level = CORNER, optimal = 2 }
+        b:noteHintSeen()
+        local c = Board:new()
+        assert.is_true(c:load(b:serialize()))
+        assert.is_true(c.hint_seen)
+        local old = Board:new{ level = CORNER, optimal = 2 }:serialize()
+        old.hint_seen = nil
+        assert.is_true(c:load(old))
+        assert.is_nil(c.hint_seen)
+    end)
+
     it("refuses corrupt saves", function()
         local b = Board:new()
         assert.is_false(b:load(nil))

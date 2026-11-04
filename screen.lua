@@ -26,6 +26,7 @@ local MenuHelper   = require("menu_helper")
 local Board        = lrequire("board")
 local BoardWidget  = lrequire("board_widget")
 local Levels       = lrequire("levels")
+local Progress     = lrequire("progress")
 
 local DeviceScreen = Device.screen
 
@@ -37,7 +38,7 @@ The tray is 4 squares wide and 5 high, with a gap two squares wide in the middle
 • Blocks slide up, down, left or right, into empty squares only — never through another block, never lifted.
 • One move is one block going anywhere it can reach, even round a corner, as long as no other block moves in between. Moving the same block again straight after counts as the same move.
 
-Each level shows its optimal number of moves: the fewest it can be solved in. Solving it in that many is a perfect score.
+Each level shows its optimal number of moves: the fewest it can be solved in. Solving it in that many, without a hint, is a perfect score: the level gets a star (★) instead of a check mark (✓) in the Level list.
 
 Controls:
 • Tap a block to select it (thick outline). Dots mark the empty squares it can reach; tap one to move it there (if two places fit, the nearer one). Tap the block again to deselect it.
@@ -57,7 +58,7 @@ Le plateau mesure 4 cases de large sur 5 de haut, avec une ouverture de deux cas
 • Les blocs glissent vers le haut, le bas, la gauche ou la droite, dans des cases vides uniquement — jamais à travers un autre bloc, jamais soulevés.
 • Un coup, c'est un bloc qui va où il peut, même en tournant un coin, tant qu'aucun autre bloc ne bouge entre-temps. Redéplacer aussitôt le même bloc compte pour le même coup.
 
-Chaque niveau indique son nombre de coups optimal : le minimum pour le résoudre. Le réussir en autant de coups, c'est le score parfait.
+Chaque niveau indique son nombre de coups optimal : le minimum pour le résoudre. Le réussir en autant de coups, sans astuce, c'est le score parfait : le niveau reçoit une étoile (★) au lieu d'une coche (✓) dans la liste des niveaux.
 
 Commandes :
 • Touchez un bloc pour le sélectionner (contour épais). Des points marquent les cases vides qu'il peut atteindre ; touchez-en une pour l'y déplacer (si deux places conviennent, la plus proche). Touchez à nouveau le bloc pour le désélectionner.
@@ -97,6 +98,7 @@ end
 local KlotskiScreen = ScreenBase:extend{}
 
 function KlotskiScreen:init()
+    self.progress = Progress.new(self.plugin)
     self.board = Board:new()
     if not self.board:load(self.plugin:loadState()) then
         self:_startLevel(self:_getBand(), self:_nextUnsolved(self:_getBand()))
@@ -121,27 +123,16 @@ function KlotskiScreen:_getBand()
     return Levels.isBand(b) and b or Levels.DEFAULT_BAND
 end
 
--- Solved levels of a band: a string of "0"/"1", one character per level.
-function KlotskiScreen:_solvedMap(band)
-    local s = self.plugin:getSetting("solved_" .. band, "")
-    return type(s) == "string" and s or ""
-end
-
+-- Solved / solved-in-the-optimum levels: see progress.lua.
 function KlotskiScreen:isLevelSolved(band, index)
-    return self:_solvedMap(band):sub(index, index) == "1"
+    return self.progress:isSolved(band, index)
 end
 
-function KlotskiScreen:solvedCount(band)
-    local _, n = self:_solvedMap(band):gsub("1", "")
-    return n
-end
-
-function KlotskiScreen:_markSolved(band, index)
-    if not band or not index or index < 1 then return end
-    local s = self:_solvedMap(band)
-    if #s < index then s = s .. string.rep("0", index - #s) end
-    s = s:sub(1, index - 1) .. "1" .. s:sub(index + 1)
-    self.plugin:saveSetting("solved_" .. band, s)
+-- A win marks the level solved, and optimal too when it took the optimal
+-- number of moves with no hint. Marks are never taken back.
+function KlotskiScreen:_markSolved()
+    local b = self.board
+    self.progress:record(b.band, b.index, b:isOptimalWin())
 end
 
 -- The first level of the band not solved yet (other than the one on the
@@ -245,7 +236,7 @@ end
 function KlotskiScreen:_afterMove()
     self.hint_cell = nil
     local b = self.board
-    if b:isWon() then self:_markSolved(b.band, b.index) end
+    if b:isWon() then self:_markSolved() end
     self:_save()
     self:_updateButtons()
     self:updateStatus()
@@ -312,12 +303,18 @@ function KlotskiScreen:_planAhead()
 end
 
 -- A hint can bring the big block home, so the round may end here.
+-- A hint shown, even one only marked, rules out the optimal mark.
 function KlotskiScreen:onHint()
     self:_planAhead()
-    ScreenBase.onHint(self)
     local b = self.board
+    local used = b:getHintsUsed()
+    ScreenBase.onHint(self)
+    if (self.hint_cell or b:getHintsUsed() > used) and not b.hint_seen then
+        b:noteHintSeen()
+        self:_save()
+    end
     if b:isWon() then
-        self:_markSolved(b.band, b.index)
+        self:_markSolved()
         self:_save()
     end
     self:_updateButtons()
@@ -372,12 +369,15 @@ function KlotskiScreen:openDifficultyMenu()
     for _i, id in ipairs(Levels.BANDS) do
         items[#items + 1] = {
             id   = id,
-            text = BAND_LABELS[id] .. " · " .. T(_("Solved: %1/%2"), self:solvedCount(id), Levels.count(id)),
+            text = BAND_LABELS[id] .. " · " .. T(_("Solved: %1/%2 · minimum: %3"),
+                self.progress:solvedCount(id), Levels.count(id), self.progress:optimalCount(id)),
         }
     end
     MenuHelper.openPickerMenu{
         title      = _("Difficulty"),
         items      = items,
+        -- Wide enough for "Intermédiaire · Résolus : 600/600 · au minimum : 600".
+        width_ratio = 0.9,
         current_id = self:_getBand(),
         parent     = self,
         on_select  = function(id)
@@ -388,7 +388,7 @@ function KlotskiScreen:openDifficultyMenu()
 end
 
 -- Every level of the current difficulty, opened on the page of the level in
--- play; solved ones carry a check mark.
+-- play; solved ones carry a check mark, a star if solved in the optimum.
 function KlotskiScreen:openLevelMenu()
     local band = self:_getBand()
     local total = Levels.count(band)
@@ -400,7 +400,7 @@ function KlotskiScreen:openLevelMenu()
         local lv = Levels.get(band, i)
         item_table[i] = {
             text     = T("%1 · %2", lv.name and levelName(lv.name) or i, T(_("Optimal: %1"), lv.optimal)),
-            mandatory = self:isLevelSolved(band, i) and "✓" or nil,
+            mandatory = self.progress:mark(band, i),
             checked  = i == cur,
             callback = function()
                 UIManager:close(menu)
@@ -464,8 +464,12 @@ function KlotskiScreen:updateStatus(msg)
     elseif b:isShowingSolution() then
         status = T(_("Solution: move %1/%2"), b.sol_step, #b.solution)
     elseif b:isWon() then
-        if b.optimal and b:getMoves() <= b.optimal then
+        if b:isOptimalWin() then
             status = T(_("Solved in %1 moves, the optimum! Time: %2"), b:getMoves(), b.timer:format())
+        elseif b.hint_seen or b:getHintsUsed() > 0 then
+            -- Hints follow an optimal solution: no credit for the count.
+            status = T(_("Solved with hints in %1 moves (optimal: %2). Time: %3"), b:getMoves(),
+                b.optimal or "?", b.timer:format())
         else
             status = T(_("Solved in %1 moves (optimal: %2). Time: %3"), b:getMoves(), b.optimal or "?",
                 b.timer:format())
