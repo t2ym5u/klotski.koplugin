@@ -86,8 +86,10 @@ function KlotskiBoardWidget:onCellSwipe(_, ges)
     return true
 end
 
-function KlotskiBoardWidget:refresh()
-    UIManager:setDirty(self, function()
+-- `parent` is the screen: UIManager only repaints top-level widgets, so
+-- marking this widget itself dirty would refresh the old pixels.
+function KlotskiBoardWidget:refresh(parent)
+    UIManager:setDirty(parent or self, function()
         return "ui", self.paint_rect or self.dimen
     end)
 end
